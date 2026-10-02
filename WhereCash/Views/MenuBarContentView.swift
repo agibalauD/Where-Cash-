@@ -11,6 +11,7 @@ struct MenuBarContentView: View {
     @AppStorage(AppSettingKeys.monthlyLimitMinor) private var monthlyLimitMinorRaw = ""
     @AppStorage(AppSettingKeys.monthlyLimitCurrency) private var monthlyLimitCurrencyRaw = CurrencyCode.byn.rawValue
     @AppStorage(AppSettingKeys.selectedSavingsGoalID) private var selectedSavingsGoalIDRaw = ""
+    @AppStorage(AppSettingKeys.analyticsStartTimestamp) private var analyticsStartTimestamp = 0.0
 
     @ObservedObject var router: PanelRouter
     @State private var selectedMonth = MonthUtilities.startOfMonth(for: Date())
@@ -23,6 +24,7 @@ struct MenuBarContentView: View {
         expenses.filter {
             ExpenseCategory.spendingCases.contains($0.category)
                 && MonthUtilities.contains($0.createdAt, inMonth: selectedMonth)
+                && AnalyticsPeriod.includes($0.createdAt, startTimestamp: analyticsStartTimestamp)
         }
     }
 
@@ -51,9 +53,13 @@ struct MenuBarContentView: View {
                 }
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             case .settings:
-                SettingsView {
-                    show(.statistics)
-                }
+                SettingsView(
+                    onBack: { show(.statistics) },
+                    onAnalyticsReset: {
+                        selectedMonth = MonthUtilities.startOfMonth(for: Date())
+                        show(.statistics)
+                    }
+                )
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             case .help:
                 HelpView {

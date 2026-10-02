@@ -36,6 +36,7 @@ struct HistoryView: View {
     @Query(sort: \ExpenseRecord.createdAt, order: .reverse) private var expenses: [ExpenseRecord]
     @Query(sort: \SavingsGoal.createdAt) private var savingsGoals: [SavingsGoal]
     @Query(sort: \SavingsContribution.createdAt, order: .reverse) private var savingsContributions: [SavingsContribution]
+    @AppStorage(AppSettingKeys.analyticsStartTimestamp) private var analyticsStartTimestamp = 0.0
 
     @State private var activeSection: HistorySection = .expenses
     @State private var selectedMonth = MonthUtilities.startOfMonth(for: Date())
@@ -109,6 +110,14 @@ struct HistoryView: View {
                             Text(expense.createdAt.formatted(.dateTime.day().month(.wide).year()))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            if AnalyticsPeriod.isArchived(
+                                expense.createdAt,
+                                startTimestamp: analyticsStartTimestamp
+                            ) {
+                                Label("Архив", systemImage: "archivebox")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
 
                         Spacer()

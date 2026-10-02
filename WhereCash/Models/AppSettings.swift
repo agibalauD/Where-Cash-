@@ -10,4 +10,5 @@ enum AppSettingKeys {
     static let monthlyLimitMinor = "monthlyLimitMinor"
     static let monthlyLimitCurrency = "monthlyLimitCurrency"
     static let selectedSavingsGoalID = "selectedSavingsGoalID"
+    static let analyticsStartTimestamp = "analyticsStartTimestamp"
 }

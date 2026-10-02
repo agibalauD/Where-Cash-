@@ -539,8 +539,11 @@ final class TelegramBotService: ObservableObject {
 
     private func currentStatisticsSnapshot(now: Date = Date()) throws -> TelegramStatisticsSnapshot {
         let allExpenses = try modelContext.fetch(FetchDescriptor<ExpenseRecord>())
+        let analyticsStartTimestamp = defaults.double(forKey: AppSettingKeys.analyticsStartTimestamp)
         let expenses = allExpenses.filter {
-            MonthUtilities.contains($0.createdAt, inMonth: now) && ExpenseCategory.spendingCases.contains($0.category)
+            MonthUtilities.contains($0.createdAt, inMonth: now)
+                && ExpenseCategory.spendingCases.contains($0.category)
+                && AnalyticsPeriod.includes($0.createdAt, startTimestamp: analyticsStartTimestamp)
         }
 
         let primaryCurrency = defaults.string(forKey: AppSettingKeys.lastCurrency)

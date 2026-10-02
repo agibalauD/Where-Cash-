@@ -12,6 +12,7 @@ struct SettingsView: View {
     @AppStorage(AppSettingKeys.monthlyLimitMinor) private var monthlyLimitMinorRaw = ""
     @AppStorage(AppSettingKeys.monthlyLimitCurrency) private var monthlyLimitCurrencyRaw = CurrencyCode.byn.rawValue
     @AppStorage(AppSettingKeys.selectedSavingsGoalID) private var selectedSavingsGoalIDRaw = ""
+    @AppStorage(AppSettingKeys.analyticsStartTimestamp) private var analyticsStartTimestamp = 0.0
 
     @State private var launchAtLogin = false
     @State private var limitAmountText = ""
@@ -22,9 +23,11 @@ struct SettingsView: View {
     @State private var showGoalDeleteConfirmation = false
     @State private var telegramToken = ""
     @State private var showTelegramDisconnectConfirmation = false
+    @State private var showAnalyticsResetConfirmation = false
     @State private var errorMessage: String?
 
     let onBack: () -> Void
+    let onAnalyticsReset: () -> Void
 
     private var primaryCurrency: CurrencyCode {
         CurrencyCode(rawValue: lastCurrencyRaw) ?? .byn
@@ -57,6 +60,27 @@ struct SettingsView: View {
                 Section("Отображение") {
                     LabeledContent("Основная валюта", value: primaryCurrency.rawValue)
                     Toggle("Показывать вторую валюту", isOn: $showSecondaryCurrency)
+                }
+
+                Section("Период статистики") {
+                    if let startDate = AnalyticsPeriod.startDate(from: analyticsStartTimestamp) {
+                        LabeledContent(
+                            "Текущий период",
+                            value: startDate.formatted(date: .abbreviated, time: .shortened)
+                        )
+                    } else {
+                        LabeledContent("Текущий период", value: "Вся история")
+                    }
+
+                    Button(role: .destructive) {
+                        showAnalyticsResetConfirmation = true
+                    } label: {
+                        Label("Начать учёт заново", systemImage: "arrow.counterclockwise")
+                    }
+
+                    Text("Расходы останутся в истории как архив. Накопления и прогресс целей не изменятся.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Лимит расходов") {
@@ -241,6 +265,56 @@ struct SettingsView: View {
         } message: {
             Text("История пополнений этой цели также будет удалена. Действие нельзя отменить.")
         }
+        .overlay {
+            if showAnalyticsResetConfirmation {
+                analyticsResetOverlay
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
+        }
+        .animation(.easeInOut(duration: 0.16), value: showAnalyticsResetConfirmation)
+    }
+
+    private var analyticsResetOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.28)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    showAnalyticsResetConfirmation = false
+                }
+
+            VStack(spacing: 14) {
+                Image(systemName: "arrow.counterclockwise.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+
+                Text("Начать новый период?")
+                    .font(.headline)
+
+                Text("Текущая аналитика обнулится. Все прежние расходы останутся в истории с отметкой «Архив», а накопления сохранятся.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+
+                HStack(spacing: 10) {
+                    Button("Отмена") {
+                        showAnalyticsResetConfirmation = false
+                    }
+                    .keyboardShortcut(.cancelAction)
+
+                    Button("Начать заново", role: .destructive) {
+                        resetAnalytics()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
+                }
+            }
+            .padding(22)
+            .frame(maxWidth: 320)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+            .shadow(radius: 18, y: 8)
+        }
     }
 
     @ViewBuilder
@@ -314,6 +388,12 @@ struct SettingsView: View {
     private func clearLimit() {
         monthlyLimitMinorRaw = ""
         limitAmountText = ""
+    }
+
+    private func resetAnalytics() {
+        showAnalyticsResetConfirmation = false
+        analyticsStartTimestamp = Date().timeIntervalSince1970
+        onAnalyticsReset()
     }
 
     private func deleteSelectedGoal() {
