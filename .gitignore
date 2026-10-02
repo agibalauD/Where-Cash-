@@ -1,0 +1,25 @@
+.DS_Store
+DerivedData/
+.build/
+dist/
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+
+# Local application data and databases
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.store
+
+# Secrets, credentials and local environment overrides
+.env
+.env.*
+!.env.example
+secrets.*
+*.p12
+*.cer
+*.mobileprovision
+*.pem
+*.key
