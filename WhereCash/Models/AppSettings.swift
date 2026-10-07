@@ -9,6 +9,8 @@ enum AppSettingKeys {
     static let telegramBotUsername = "telegramBotUsername"
     static let monthlyLimitMinor = "monthlyLimitMinor"
     static let monthlyLimitCurrency = "monthlyLimitCurrency"
-    static let selectedSavingsGoalID = "selectedSavingsGoalID"
+    // The persisted key stays singular for compatibility with versions up to 1.6.
+    // Its value now contains one or two comma-separated goal identifiers.
+    static let selectedSavingsGoalIDs = "selectedSavingsGoalID"
     static let analyticsStartTimestamp = "analyticsStartTimestamp"
 }

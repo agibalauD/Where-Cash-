@@ -2,20 +2,21 @@ import SwiftData
 import SwiftUI
 
 struct SavingsGoalEditorView: View {
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
     let goal: SavingsGoal?
     let hasContributions: Bool
+    let onClose: () -> Void
 
     @State private var name: String
     @State private var targetText: String
     @State private var currency: CurrencyCode
     @State private var errorMessage: String?
 
-    init(goal: SavingsGoal?, hasContributions: Bool) {
+    init(goal: SavingsGoal?, hasContributions: Bool, onClose: @escaping () -> Void) {
         self.goal = goal
         self.hasContributions = hasContributions
+        self.onClose = onClose
         _name = State(initialValue: goal?.name ?? "")
         _targetText = State(initialValue: goal.map {
             CurrencyAmountFormatter.editString(minorUnits: $0.targetMinor)
@@ -53,28 +54,30 @@ struct SavingsGoalEditorView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
             }
             .formStyle(.grouped)
 
             HStack {
                 Spacer()
-                Button("Отмена") { dismiss() }
+                Button("Отмена", action: onClose)
+                    .keyboardShortcut(.cancelAction)
                 Button("Сохранить", action: save)
+                    .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .tint(.cyan)
                     .disabled(normalizedName.isEmpty || AmountParser.minorUnits(from: targetText) == nil)
             }
         }
         .padding(20)
-        .frame(width: 380)
-        .alert("Не удалось сохранить цель", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "Неизвестная ошибка")
-        }
+        .frame(width: 380, height: 390)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .shadow(radius: 18, y: 8)
     }
 
     private func save() {
@@ -97,7 +100,7 @@ struct SavingsGoalEditorView: View {
 
         do {
             try modelContext.save()
-            dismiss()
+            onClose()
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -11,7 +11,7 @@ struct SettingsView: View {
     @AppStorage(AppSettingKeys.lastCurrency) private var lastCurrencyRaw = CurrencyCode.byn.rawValue
     @AppStorage(AppSettingKeys.monthlyLimitMinor) private var monthlyLimitMinorRaw = ""
     @AppStorage(AppSettingKeys.monthlyLimitCurrency) private var monthlyLimitCurrencyRaw = CurrencyCode.byn.rawValue
-    @AppStorage(AppSettingKeys.selectedSavingsGoalID) private var selectedSavingsGoalIDRaw = ""
+    @AppStorage(AppSettingKeys.selectedSavingsGoalIDs) private var selectedSavingsGoalIDsRaw = ""
     @AppStorage(AppSettingKeys.analyticsStartTimestamp) private var analyticsStartTimestamp = 0.0
 
     @State private var launchAtLogin = false
@@ -37,8 +37,8 @@ struct SettingsView: View {
         Int64(monthlyLimitMinorRaw)
     }
 
-    private var selectedSavingsGoalID: UUID? {
-        UUID(uuidString: selectedSavingsGoalIDRaw)
+    private var selectedSavingsGoalIDs: [UUID] {
+        SavingsGoalSelection.ids(from: selectedSavingsGoalIDsRaw)
     }
 
     var body: some View {
@@ -115,13 +115,18 @@ struct SettingsView: View {
 
                 Section("Накопления") {
                     Button {
+                        goalToEdit = nil
                         showCreateGoal = true
                     } label: {
                         Label("Создать цель", systemImage: "plus")
                     }
 
                     if savingsGoals.isEmpty {
-                        Text("Создайте цель, затем отметьте её для показа и пополнения.")
+                        Text("Создайте цели, затем отметьте до двух для показа и пополнения.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Можно выбрать одну или две цели. Их названия появятся в форме добавления и Telegram.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -215,6 +220,16 @@ struct SettingsView: View {
                     }
                     .disabled(exchangeRateService.isLoading)
                 }
+
+                if let errorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                        Button("Закрыть сообщение") {
+                            self.errorMessage = nil
+                        }
+                    }
+                }
             }
             .formStyle(.grouped)
         }
@@ -223,14 +238,6 @@ struct SettingsView: View {
         .onAppear {
             launchAtLogin = LaunchAtLoginService.isEnabled
             loadLimitEditor()
-        }
-        .alert("Не удалось изменить автозапуск", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "Неизвестная ошибка")
         }
         .confirmationDialog(
             "Отключить Telegram-бота?",
@@ -243,15 +250,6 @@ struct SettingsView: View {
             Button("Отмена", role: .cancel) {}
         } message: {
             Text("Токен будет удалён из Keychain, а привязку аккаунта потребуется выполнить заново.")
-        }
-        .sheet(isPresented: $showCreateGoal) {
-            SavingsGoalEditorView(goal: nil, hasContributions: false)
-        }
-        .sheet(item: $goalToEdit) { goal in
-            SavingsGoalEditorView(
-                goal: goal,
-                hasContributions: savingsContributions.contains { $0.goalID == goal.id }
-            )
         }
         .confirmationDialog(
             "Удалить цель?",
@@ -269,9 +267,37 @@ struct SettingsView: View {
             if showAnalyticsResetConfirmation {
                 analyticsResetOverlay
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            } else if showCreateGoal || goalToEdit != nil {
+                goalEditorOverlay
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
         }
         .animation(.easeInOut(duration: 0.16), value: showAnalyticsResetConfirmation)
+        .animation(.easeInOut(duration: 0.16), value: showCreateGoal)
+        .animation(.easeInOut(duration: 0.16), value: goalToEdit?.id)
+    }
+
+    private var goalEditorOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.28)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture(perform: closeGoalEditor)
+
+            if let goalToEdit {
+                SavingsGoalEditorView(
+                    goal: goalToEdit,
+                    hasContributions: savingsContributions.contains { $0.goalID == goalToEdit.id },
+                    onClose: closeGoalEditor
+                )
+            } else {
+                SavingsGoalEditorView(
+                    goal: nil,
+                    hasContributions: false,
+                    onClose: closeGoalEditor
+                )
+            }
+        }
     }
 
     private var analyticsResetOverlay: some View {
@@ -322,12 +348,12 @@ struct SettingsView: View {
         let relatedContributions = savingsContributions.filter { $0.goalID == goal.id }
         let currentMinor = SavingsCalculator.total(for: relatedContributions, goal: goal)
         let isCompleted = currentMinor.map { $0 >= goal.targetMinor } ?? false
-        let isSelected = selectedSavingsGoalID == goal.id
+        let isSelected = selectedSavingsGoalIDs.contains(goal.id)
 
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
                 Button {
-                    selectedSavingsGoalIDRaw = isSelected ? "" : goal.id.uuidString
+                    toggleSavingsGoal(goal.id)
                 } label: {
                     Image(systemName: isSelected ? "checkmark.square.fill" : "square")
                         .foregroundStyle(isSelected ? .cyan : .secondary)
@@ -348,6 +374,7 @@ struct SettingsView: View {
                 Spacer()
 
                 Button {
+                    showCreateGoal = false
                     goalToEdit = goal
                 } label: {
                     Image(systemName: "pencil")
@@ -396,6 +423,25 @@ struct SettingsView: View {
         onAnalyticsReset()
     }
 
+    private func toggleSavingsGoal(_ goalID: UUID) {
+        var ids = selectedSavingsGoalIDs
+        if let index = ids.firstIndex(of: goalID) {
+            ids.remove(at: index)
+        } else {
+            guard ids.count < SavingsGoalSelection.maximumCount else {
+                errorMessage = "На главном экране можно показывать не больше двух целей накоплений."
+                return
+            }
+            ids.append(goalID)
+        }
+        selectedSavingsGoalIDsRaw = SavingsGoalSelection.storedValue(for: ids)
+    }
+
+    private func closeGoalEditor() {
+        showCreateGoal = false
+        goalToEdit = nil
+    }
+
     private func deleteSelectedGoal() {
         guard let goalToDelete else { return }
         for contribution in savingsContributions where contribution.goalID == goalToDelete.id {
@@ -403,9 +449,8 @@ struct SettingsView: View {
         }
         modelContext.delete(goalToDelete)
 
-        if selectedSavingsGoalID == goalToDelete.id {
-            selectedSavingsGoalIDRaw = ""
-        }
+        let remainingSelectedIDs = selectedSavingsGoalIDs.filter { $0 != goalToDelete.id }
+        selectedSavingsGoalIDsRaw = SavingsGoalSelection.storedValue(for: remainingSelectedIDs)
 
         do {
             try modelContext.save()

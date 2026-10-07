@@ -17,6 +17,12 @@ final class TelegramInteractionTests: XCTestCase {
         XCTAssertEqual(TelegramCallbackData(rawValue: value.rawValue), value)
     }
 
+    func testSavingsGoalCallbackRoundTrip() {
+        let goalID = UUID(uuidString: "0F501825-970E-4A78-9943-8BD88E506B86")!
+        let value = TelegramCallbackData.savingsGoal(sessionID: "SAVE123", goalID: goalID)
+        XCTAssertEqual(TelegramCallbackData(rawValue: value.rawValue), value)
+    }
+
     func testStatisticsCallbackRoundTrip() {
         let value = TelegramCallbackData.statistics
         XCTAssertEqual(TelegramCallbackData(rawValue: value.rawValue), value)
@@ -82,7 +88,7 @@ final class TelegramInteractionTests: XCTestCase {
             limitMinor: 20_000,
             limitCurrency: .byn,
             limitSpentMinor: 12_500,
-            savings: nil
+            savings: []
         )
     }
 }

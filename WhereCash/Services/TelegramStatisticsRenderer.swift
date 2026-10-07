@@ -20,7 +20,7 @@ struct TelegramStatisticsSnapshot {
     let limitMinor: Int64?
     let limitCurrency: CurrencyCode
     let limitSpentMinor: Int64?
-    let savings: TelegramSavingsStatistic?
+    let savings: [TelegramSavingsStatistic]
 }
 
 enum TelegramStatisticsText {
@@ -44,7 +44,7 @@ enum TelegramStatisticsText {
 
         lines.append("")
         lines.append(limitText(for: snapshot))
-        lines.append(savingsText(for: snapshot.savings))
+        lines.append(contentsOf: savingsText(for: snapshot.savings))
         return lines.joined(separator: "\n")
     }
 
@@ -62,11 +62,13 @@ enum TelegramStatisticsText {
         return "⚪️ Лимит: \(CurrencyAmountFormatter.string(minorUnits: spentMinor, currency: snapshot.limitCurrency)) из \(CurrencyAmountFormatter.string(minorUnits: limitMinor, currency: snapshot.limitCurrency))"
     }
 
-    private static func savingsText(for savings: TelegramSavingsStatistic?) -> String {
-        guard let savings else {
-            return "⚪️ Цель накоплений не выбрана"
+    private static func savingsText(for savings: [TelegramSavingsStatistic]) -> [String] {
+        guard !savings.isEmpty else {
+            return ["⚪️ Цели накоплений не выбраны"]
         }
-        return "🟢 Накопления «\(savings.name)»: \(amount(savings.currentMinor, currency: savings.currency)) из \(CurrencyAmountFormatter.string(minorUnits: savings.targetMinor, currency: savings.currency))"
+        return savings.map {
+            "🟢 Накопления «\($0.name)»: \(amount($0.currentMinor, currency: $0.currency)) из \(CurrencyAmountFormatter.string(minorUnits: $0.targetMinor, currency: $0.currency))"
+        }
     }
 
     private static func amount(_ minor: Int64?, currency: CurrencyCode) -> String {
@@ -90,7 +92,7 @@ enum TelegramStatisticsRenderer {
     static func pngData(for snapshot: TelegramStatisticsSnapshot) -> Data? {
         let renderer = ImageRenderer(
             content: TelegramStatisticsCard(snapshot: snapshot)
-                .frame(width: 720, height: 900)
+                .frame(width: 720, height: 980)
                 .environment(\.colorScheme, .dark)
         )
         renderer.scale = 1
@@ -242,24 +244,28 @@ private struct TelegramStatisticsCard: View {
 
     @ViewBuilder
     private var savingsRow: some View {
-        if let savings = snapshot.savings {
-            VStack(alignment: .leading, spacing: 9) {
-                HStack {
-                    Label(savings.name, systemImage: "target")
-                    Spacer()
-                    Text("\(formatted(savings.currentMinor, currency: savings.currency)) из \(CurrencyAmountFormatter.string(minorUnits: savings.targetMinor, currency: savings.currency))")
-                }
-                .font(.system(size: 17, weight: .semibold))
-
-                ProgressView(
-                    value: min(Double(savings.currentMinor ?? 0) / Double(max(savings.targetMinor, 1)), 1)
-                )
-                .tint(.green)
-            }
-        } else {
-            Label("Цель накоплений не выбрана", systemImage: "target")
+        if snapshot.savings.isEmpty {
+            Label("Цели накоплений не выбраны", systemImage: "target")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(.white.opacity(0.55))
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(snapshot.savings.enumerated()), id: \.offset) { _, savings in
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack {
+                            Label(savings.name, systemImage: "target")
+                            Spacer()
+                            Text("\(formatted(savings.currentMinor, currency: savings.currency)) из \(CurrencyAmountFormatter.string(minorUnits: savings.targetMinor, currency: savings.currency))")
+                        }
+                        .font(.system(size: 17, weight: .semibold))
+
+                        ProgressView(
+                            value: min(Double(savings.currentMinor ?? 0) / Double(max(savings.targetMinor, 1)), 1)
+                        )
+                        .tint(.green)
+                    }
+                }
+            }
         }
     }
 

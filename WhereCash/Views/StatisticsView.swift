@@ -8,7 +8,7 @@ struct StatisticsView: View {
     let showSecondaryCurrency: Bool
     let monthlyLimitMinor: Int64?
     let monthlyLimitCurrency: CurrencyCode
-    let selectedSavingsGoal: SavingsGoal?
+    let selectedSavingsGoals: [SavingsGoal]
     let savingsContributions: [SavingsContribution]
 
     @State private var animatedAmounts: [ExpenseCategory: Int64] = [:]
@@ -46,9 +46,8 @@ struct StatisticsView: View {
         return max(Double(limitSpentMinor) / Double(monthlyLimitMinor), 0)
     }
 
-    private var activeSavingsTotal: Int64? {
-        guard let selectedSavingsGoal else { return nil }
-        return SavingsCalculator.total(for: savingsContributions, goal: selectedSavingsGoal)
+    private func savingsTotal(for goal: SavingsGoal) -> Int64? {
+        SavingsCalculator.total(for: savingsContributions, goal: goal)
     }
 
     private var animationKey: String {
@@ -226,33 +225,39 @@ struct StatisticsView: View {
 
     @ViewBuilder
     private var savingsSummary: some View {
-        if let selectedSavingsGoal {
-            VStack(alignment: .leading, spacing: 7) {
-                HStack {
-                    Label(selectedSavingsGoal.name, systemImage: "target")
-                        .font(.headline)
-                    Spacer()
-                    if let activeSavingsTotal,
-                       activeSavingsTotal >= selectedSavingsGoal.targetMinor {
-                        Text("Цель достигнута")
-                            .font(.caption.bold())
-                            .foregroundStyle(.green)
-                    }
-                }
-
-                SavingsProgressBar(
-                    currentMinor: activeSavingsTotal,
-                    targetMinor: selectedSavingsGoal.targetMinor,
-                    currency: selectedSavingsGoal.currency
-                )
-            }
-        } else {
+        if selectedSavingsGoals.isEmpty {
             VStack(alignment: .leading, spacing: 7) {
                 ProgressView(value: 0)
                     .tint(.green)
-                Label("Выберите цель накоплений в настройках", systemImage: "target")
+                Label("Выберите до двух целей в настройках", systemImage: "target")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(selectedSavingsGoals, id: \.id) { goal in
+                    let currentMinor = savingsTotal(for: goal)
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack {
+                            Label(goal.name, systemImage: "target")
+                                .font(.headline)
+                                .lineLimit(1)
+                            Spacer()
+                            if let currentMinor,
+                               currentMinor >= goal.targetMinor {
+                                Text("Цель достигнута")
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.green)
+                            }
+                        }
+
+                        SavingsProgressBar(
+                            currentMinor: currentMinor,
+                            targetMinor: goal.targetMinor,
+                            currency: goal.currency
+                        )
+                    }
+                }
             }
         }
     }

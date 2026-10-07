@@ -1,15 +1,20 @@
 import SwiftData
 import SwiftUI
 
+private enum ExpenseEntryDestination: Hashable {
+    case expense(ExpenseCategory)
+    case savings(goalID: UUID)
+}
+
 struct ExpenseEntryView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var exchangeRateService: ExchangeRateService
     @Query(sort: \SavingsGoal.createdAt) private var savingsGoals: [SavingsGoal]
     @AppStorage(AppSettingKeys.lastCurrency) private var lastCurrencyRaw = CurrencyCode.byn.rawValue
-    @AppStorage(AppSettingKeys.selectedSavingsGoalID) private var selectedSavingsGoalIDRaw = ""
+    @AppStorage(AppSettingKeys.selectedSavingsGoalIDs) private var selectedSavingsGoalIDsRaw = ""
 
     @State private var amountText = ""
-    @State private var selectedCategory: ExpenseCategory?
+    @State private var selectedDestination: ExpenseEntryDestination?
     @State private var selectedCurrency: CurrencyCode = .byn
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -20,13 +25,15 @@ struct ExpenseEntryView: View {
         AmountParser.minorUnits(from: amountText)
     }
 
-    private var selectedSavingsGoal: SavingsGoal? {
-        guard let id = UUID(uuidString: selectedSavingsGoalIDRaw) else { return nil }
-        return savingsGoals.first { $0.id == id }
+    private var selectedSavingsGoals: [SavingsGoal] {
+        SavingsGoalSelection.ids(from: selectedSavingsGoalIDsRaw).compactMap { id in
+            savingsGoals.first { $0.id == id }
+        }
     }
 
-    private var savingsGoalIsMissing: Bool {
-        selectedCategory == .savings && selectedSavingsGoal == nil
+    private var selectedGoalIsMissing: Bool {
+        guard case let .savings(goalID) = selectedDestination else { return false }
+        return !selectedSavingsGoals.contains { $0.id == goalID }
     }
 
     var body: some View {
@@ -49,11 +56,15 @@ struct ExpenseEntryView: View {
             }
 
             HStack(spacing: 8) {
-                Picker("Категория", selection: $selectedCategory) {
-                    Text("Выберите категорию").tag(nil as ExpenseCategory?)
-                    ForEach(ExpenseCategory.allCases) { category in
+                Picker("Категория", selection: $selectedDestination) {
+                    Text("Выберите категорию").tag(nil as ExpenseEntryDestination?)
+                    ForEach(ExpenseCategory.spendingCases) { category in
                         Label(category.title, systemImage: category.symbolName)
-                            .tag(category as ExpenseCategory?)
+                            .tag(ExpenseEntryDestination.expense(category) as ExpenseEntryDestination?)
+                    }
+                    ForEach(selectedSavingsGoals, id: \.id) { goal in
+                        Label("Накопления — \(goal.name)", systemImage: "target")
+                            .tag(ExpenseEntryDestination.savings(goalID: goal.id) as ExpenseEntryDestination?)
                     }
                 }
                 .labelsHidden()
@@ -70,10 +81,10 @@ struct ExpenseEntryView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.cyan)
-                .disabled(parsedAmount == nil || selectedCategory == nil || savingsGoalIsMissing || isSaving)
+                .disabled(parsedAmount == nil || selectedDestination == nil || selectedGoalIsMissing || isSaving)
             }
-            if savingsGoalIsMissing {
-                Label("Выберите цель накоплений в настройках", systemImage: "exclamationmark.circle")
+            if selectedGoalIsMissing {
+                Label("Эта цель больше не выбрана в настройках", systemImage: "exclamationmark.circle")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -93,15 +104,16 @@ struct ExpenseEntryView: View {
 
     @MainActor
     private func addExpense() async {
-        guard let amountMinor = parsedAmount, let selectedCategory else { return }
+        guard let amountMinor = parsedAmount, let selectedDestination else { return }
         isSaving = true
         defer { isSaving = false }
 
         await exchangeRateService.refreshIfNeeded()
         let quote = exchangeRateService.currentQuote
-        if selectedCategory == .savings {
-            guard let goal = selectedSavingsGoal else {
-                errorMessage = "Сначала выберите цель накоплений в настройках."
+        switch selectedDestination {
+        case let .savings(goalID):
+            guard let goal = selectedSavingsGoals.first(where: { $0.id == goalID }) else {
+                errorMessage = "Выбранная цель больше не доступна. Выберите её заново."
                 return
             }
             guard selectedCurrency == goal.currency || quote != nil else {
@@ -124,11 +136,11 @@ struct ExpenseEntryView: View {
                 modelContext.delete(contribution)
                 errorMessage = error.localizedDescription
             }
-        } else {
+        case let .expense(category):
             let expense = ExpenseRecord(
                 amountMinor: amountMinor,
                 currency: selectedCurrency,
-                category: selectedCategory,
+                category: category,
                 bynPerUSD: quote?.rate,
                 rateDate: quote?.date,
                 usedStaleRate: quote?.isStale ?? false
@@ -147,7 +159,7 @@ struct ExpenseEntryView: View {
         try modelContext.save()
         lastCurrencyRaw = selectedCurrency.rawValue
         amountText = ""
-        selectedCategory = nil
+        selectedDestination = nil
         onAdded()
     }
 }

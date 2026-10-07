@@ -4,6 +4,7 @@ import SwiftData
 enum TelegramCallbackData: Equatable {
     case currency(sessionID: String, currency: CurrencyCode)
     case category(sessionID: String, category: ExpenseCategory)
+    case savingsGoal(sessionID: String, goalID: UUID)
     case statistics
 
     var rawValue: String {
@@ -12,6 +13,8 @@ enum TelegramCallbackData: Equatable {
             return "currency:\(sessionID):\(currency.rawValue)"
         case let .category(sessionID, category):
             return "category:\(sessionID):\(category.rawValue)"
+        case let .savingsGoal(sessionID, goalID):
+            return "goal:\(sessionID):\(goalID.uuidString)"
         case .statistics:
             return "statistics:current"
         }
@@ -32,6 +35,9 @@ enum TelegramCallbackData: Equatable {
         case "category":
             guard let category = ExpenseCategory(rawValue: components[2]) else { return nil }
             self = .category(sessionID: components[1], category: category)
+        case "goal":
+            guard let goalID = UUID(uuidString: components[2]) else { return nil }
+            self = .savingsGoal(sessionID: components[1], goalID: goalID)
         default:
             return nil
         }
@@ -399,23 +405,54 @@ final class TelegramBotService: ObservableObject {
                 chatID: callback.message?.chat.id ?? ownerChatID ?? 0,
                 client: client
             )
+        case let .savingsGoal(sessionID, goalID):
+            guard sessionID == pendingExpense.sessionID,
+                  let currency = pendingExpense.currency else {
+                try? await client.answerCallbackQuery(id: callback.id, text: "Сначала выберите валюту.", showAlert: true)
+                return
+            }
+
+            guard let goal = selectedSavingsGoals().first(where: { $0.id == goalID }) else {
+                self.pendingExpense = nil
+                try? await client.answerCallbackQuery(
+                    id: callback.id,
+                    text: "Цель больше не выбрана. Отправьте сумму снова.",
+                    showAlert: true
+                )
+                return
+            }
+
+            try? await client.answerCallbackQuery(id: callback.id, text: goal.name)
+            await saveSavingsContribution(
+                amountMinor: pendingExpense.amountMinor,
+                currency: currency,
+                goal: goal,
+                chatID: callback.message?.chat.id ?? ownerChatID ?? 0,
+                client: client
+            )
         case .statistics:
             break
         }
     }
 
     private func categoryKeyboard(sessionID: String) -> TelegramInlineKeyboard {
-        let buttons = ExpenseCategory.allCases.map { category in
+        var buttons = ExpenseCategory.spendingCases.map { category in
             TelegramInlineButton(
                 text: "\(Self.emoji(for: category)) \(category.title)",
                 callbackData: TelegramCallbackData.category(sessionID: sessionID, category: category).rawValue
             )
         }
-        return TelegramInlineKeyboard(inlineKeyboard: [
-            Array(buttons.prefix(2)),
-            Array(buttons.dropFirst(2).prefix(2)),
-            Array(buttons.dropFirst(4))
-        ])
+        buttons.append(contentsOf: selectedSavingsGoals().map { goal in
+            TelegramInlineButton(
+                text: "🎯 \(goal.name)",
+                callbackData: TelegramCallbackData.savingsGoal(sessionID: sessionID, goalID: goal.id).rawValue
+            )
+        })
+
+        let rows = stride(from: 0, to: buttons.count, by: 2).map { index in
+            Array(buttons[index..<min(index + 2, buttons.count)])
+        }
+        return TelegramInlineKeyboard(inlineKeyboard: rows)
     }
 
     private func mainKeyboard() -> TelegramReplyKeyboard {
@@ -440,48 +477,12 @@ final class TelegramBotService: ObservableObject {
         let quote = exchangeRateService.currentQuote
 
         if category == .savings {
-            guard let goal = selectedSavingsGoal() else {
-                pendingExpense = nil
-                try? await client.sendMessage(
-                    chatID: chatID,
-                    text: "Пополнение не сохранено. Выберите цель накоплений в настройках WhereCash и отправьте сумму заново."
-                )
-                return
-            }
-
-            guard currency == goal.currency || quote != nil else {
-                pendingExpense = nil
-                try? await client.sendMessage(
-                    chatID: chatID,
-                    text: "Пополнение не сохранено: для другой валюты нужен актуальный или сохранённый курс."
-                )
-                return
-            }
-
-            let contribution = SavingsContribution(
-                goalID: goal.id,
-                amountMinor: amountMinor,
-                currency: currency,
-                bynPerUSD: quote?.rate,
-                rateDate: quote?.date,
-                usedStaleRate: quote?.isStale ?? false
+            pendingExpense = nil
+            try? await client.sendMessage(
+                chatID: chatID,
+                text: "Список целей обновился. Отправьте сумму заново и выберите цель по названию.",
+                replyKeyboard: mainKeyboard()
             )
-            modelContext.insert(contribution)
-            do {
-                try modelContext.save()
-                defaults.set(currency.rawValue, forKey: AppSettingKeys.lastCurrency)
-                pendingExpense = nil
-                let amount = CurrencyAmountFormatter.string(minorUnits: amountMinor, currency: currency)
-                try? await client.sendMessage(
-                    chatID: chatID,
-                    text: "Добавлено в цель «\(goal.name)»: \(amount).",
-                    replyKeyboard: mainKeyboard()
-                )
-            } catch {
-                modelContext.delete(contribution)
-                pendingExpense = nil
-                try? await client.sendMessage(chatID: chatID, text: "Не удалось сохранить пополнение в WhereCash.")
-            }
             return
         }
 
@@ -511,11 +512,59 @@ final class TelegramBotService: ObservableObject {
         }
     }
 
-    private func selectedSavingsGoal() -> SavingsGoal? {
-        guard let rawID = defaults.string(forKey: AppSettingKeys.selectedSavingsGoalID),
-              let id = UUID(uuidString: rawID),
-              let goals = try? modelContext.fetch(FetchDescriptor<SavingsGoal>()) else { return nil }
-        return goals.first { $0.id == id }
+    private func saveSavingsContribution(
+        amountMinor: Int64,
+        currency: CurrencyCode,
+        goal: SavingsGoal,
+        chatID: Int64,
+        client: TelegramAPIClient
+    ) async {
+        await exchangeRateService.refreshIfNeeded()
+        let quote = exchangeRateService.currentQuote
+
+        guard currency == goal.currency || quote != nil else {
+            pendingExpense = nil
+            try? await client.sendMessage(
+                chatID: chatID,
+                text: "Пополнение не сохранено: для другой валюты нужен актуальный или сохранённый курс.",
+                replyKeyboard: mainKeyboard()
+            )
+            return
+        }
+
+        let contribution = SavingsContribution(
+            goalID: goal.id,
+            amountMinor: amountMinor,
+            currency: currency,
+            bynPerUSD: quote?.rate,
+            rateDate: quote?.date,
+            usedStaleRate: quote?.isStale ?? false
+        )
+        modelContext.insert(contribution)
+        do {
+            try modelContext.save()
+            defaults.set(currency.rawValue, forKey: AppSettingKeys.lastCurrency)
+            pendingExpense = nil
+            let amount = CurrencyAmountFormatter.string(minorUnits: amountMinor, currency: currency)
+            try? await client.sendMessage(
+                chatID: chatID,
+                text: "Добавлено в цель «\(goal.name)»: \(amount).",
+                replyKeyboard: mainKeyboard()
+            )
+        } catch {
+            modelContext.delete(contribution)
+            pendingExpense = nil
+            try? await client.sendMessage(chatID: chatID, text: "Не удалось сохранить пополнение в WhereCash.")
+        }
+    }
+
+    private func selectedSavingsGoals() -> [SavingsGoal] {
+        let ids = SavingsGoalSelection.ids(
+            from: defaults.string(forKey: AppSettingKeys.selectedSavingsGoalIDs) ?? ""
+        )
+        guard !ids.isEmpty,
+              let goals = try? modelContext.fetch(FetchDescriptor<SavingsGoal>()) else { return [] }
+        return ids.compactMap { id in goals.first { $0.id == id } }
     }
 
     private func sendCurrentStatistics(chatID: Int64, client: TelegramAPIClient) async {
@@ -561,17 +610,14 @@ final class TelegramBotService: ObservableObject {
             ? nil
             : ExpenseCalculator.total(for: expenses, in: limitCurrency)
 
-        let savingsStatistic: TelegramSavingsStatistic?
-        if let goal = selectedSavingsGoal() {
-            let contributions = try modelContext.fetch(FetchDescriptor<SavingsContribution>())
-            savingsStatistic = TelegramSavingsStatistic(
+        let contributions = try modelContext.fetch(FetchDescriptor<SavingsContribution>())
+        let savingsStatistics = selectedSavingsGoals().map { goal in
+            TelegramSavingsStatistic(
                 name: goal.name,
                 currentMinor: SavingsCalculator.total(for: contributions, goal: goal),
                 targetMinor: goal.targetMinor,
                 currency: goal.currency
             )
-        } else {
-            savingsStatistic = nil
         }
 
         return TelegramStatisticsSnapshot(
@@ -585,7 +631,7 @@ final class TelegramBotService: ObservableObject {
             limitMinor: limitMinor,
             limitCurrency: limitCurrency,
             limitSpentMinor: limitSpentMinor,
-            savings: savingsStatistic
+            savings: savingsStatistics
         )
     }
 

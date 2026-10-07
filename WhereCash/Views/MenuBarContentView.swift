@@ -10,7 +10,7 @@ struct MenuBarContentView: View {
     @AppStorage(AppSettingKeys.showSecondaryCurrency) private var showSecondaryCurrency = true
     @AppStorage(AppSettingKeys.monthlyLimitMinor) private var monthlyLimitMinorRaw = ""
     @AppStorage(AppSettingKeys.monthlyLimitCurrency) private var monthlyLimitCurrencyRaw = CurrencyCode.byn.rawValue
-    @AppStorage(AppSettingKeys.selectedSavingsGoalID) private var selectedSavingsGoalIDRaw = ""
+    @AppStorage(AppSettingKeys.selectedSavingsGoalIDs) private var selectedSavingsGoalIDsRaw = ""
     @AppStorage(AppSettingKeys.analyticsStartTimestamp) private var analyticsStartTimestamp = 0.0
 
     @ObservedObject var router: PanelRouter
@@ -36,9 +36,10 @@ struct MenuBarContentView: View {
         CurrencyCode(rawValue: monthlyLimitCurrencyRaw) ?? .byn
     }
 
-    private var selectedSavingsGoal: SavingsGoal? {
-        guard let id = UUID(uuidString: selectedSavingsGoalIDRaw) else { return nil }
-        return savingsGoals.first { $0.id == id }
+    private var selectedSavingsGoals: [SavingsGoal] {
+        SavingsGoalSelection.ids(from: selectedSavingsGoalIDsRaw).compactMap { id in
+            savingsGoals.first { $0.id == id }
+        }
     }
 
     var body: some View {
@@ -116,7 +117,7 @@ struct MenuBarContentView: View {
                     showSecondaryCurrency: showSecondaryCurrency,
                     monthlyLimitMinor: monthlyLimitMinor,
                     monthlyLimitCurrency: monthlyLimitCurrency,
-                    selectedSavingsGoal: selectedSavingsGoal,
+                    selectedSavingsGoals: selectedSavingsGoals,
                     savingsContributions: savingsContributions
                 )
             }
