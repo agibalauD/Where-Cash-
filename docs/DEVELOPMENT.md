@@ -21,7 +21,7 @@ WhereCash/
   WhereCashApp.swift       AppDelegate, NSStatusItem и композиция зависимостей
 WhereCashTests/            XCTest unit-тесты
 docs/                      документация
-dist/                      локальная неподписанная сборка
+dist/WhereCash.app         готовая универсальная неподписанная Release-сборка
 ```
 
 ## Xcode
@@ -44,6 +44,22 @@ dist/                      локальная неподписанная сбо�
 ```
 
 Готовый продукт появится в `/tmp/WhereCashDerivedData/Build/Products/Debug/WhereCash.app`.
+
+Для обновления распространяемой сборки создайте Release-приложение для обеих архитектур и замените `dist/WhereCash.app`:
+
+```bash
+/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild clean build \
+  -project WhereCash.xcodeproj \
+  -scheme WhereCash \
+  -configuration Release \
+  -destination 'generic/platform=macOS' \
+  -derivedDataPath /tmp/WhereCashReleaseDerivedData \
+  CODE_SIGNING_ALLOWED=NO \
+  ONLY_ACTIVE_ARCH=NO \
+  ARCHS='arm64 x86_64'
+```
+
+Перед коммитом проверьте архитектуры через `file`, версию через `Info.plist` и отсутствие секретов или пользовательских баз. В Git разрешён только bundle `dist/WhereCash.app`, остальные файлы `dist` игнорируются.
 
 ## Тесты
 
@@ -68,7 +84,7 @@ dist/                      локальная неподписанная сбо�
 - Не переносить бизнес-логику в `StatusBarController`; он отвечает только за системный элемент, popover и контекстное меню.
 - Никогда не хранить и не логировать Telegram-токен в `UserDefaults`, документации или исходном коде; используется только `KeychainService`.
 - Keychain-запись Telegram использует `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`: токен не должен переноситься через резервную копию или синхронизироваться на другое устройство.
-- Перед публикацией выполнять поиск секретов; каталоги сборок, SwiftData-базы, `.env`, сертификаты и закрытые ключи не включать в Git.
+- Перед публикацией выполнять поиск секретов; кроме готового `dist/WhereCash.app`, каталоги сборок, SwiftData-базы, `.env`, сертификаты и закрытые ключи не включать в Git.
 - Telegram `update_id` сохранять после обработки обновления, чтобы избежать повторного создания расходов.
 - Telegram-статистика всегда строится для `Date()`; месячную навигацию и архивные callback-команды в бот не добавлять.
 - PNG-карточка должна получать значения из `ExpenseCalculator` и `SavingsCalculator`, а не повторять валютные формулы внутри `TelegramStatisticsRenderer`.

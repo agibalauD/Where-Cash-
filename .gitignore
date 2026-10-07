@@ -1,7 +1,9 @@
 .DS_Store
 DerivedData/
 .build/
-dist/
+dist/*
+!dist/WhereCash.app/
+!dist/WhereCash.app/**
 *.xcuserstate
 xcuserdata/
 *.xccheckout
